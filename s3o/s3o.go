@@ -55,7 +55,11 @@ func Handler(next http.Handler) http.Handler {
 		token := r.Form.Get("token")
 
 		if user == "" || token == "" {
-			requrl := fmt.Sprintf("http://%s%s", r.Host, r.URL.Path) //TODO: don't hardcode http.
+			proto := "http"
+			if r.TLS != nil {
+				proto = "https"
+			}
+			requrl := fmt.Sprintf("%s://%s%s", proto, r.Host, r.URL.Path)
 			w.Header().Add("Cache-Control", "private, no-cache, no-store, must-revalidate")
 			w.Header().Add("Pragma", "no-cache")
 			w.Header().Add("Expires", "0")
