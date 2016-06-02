@@ -59,7 +59,7 @@ func Handler(next http.Handler) http.Handler {
 			w.Header().Add("Cache-Control", "private, no-cache, no-store, must-revalidate")
 			w.Header().Add("Pragma", "no-cache")
 			w.Header().Add("Expires", "0")
-			http.Redirect(w, r, "https://s3o.ft.com/v2/authenticate/?redirect="+url.QueryEscape(requrl), http.StatusFound)
+			http.Redirect(w, r, "https://s3o.ft.com/v2/authenticate/?redirect="+url.QueryEscape(requrl)+"&host="+url.QueryEscape(r.Host), http.StatusFound)
 			return
 		}
 
@@ -71,7 +71,7 @@ func Handler(next http.Handler) http.Handler {
 		}
 
 		hash := sha1.New()
-		if _, err := hash.Write([]byte(user)); err != nil {
+		if _, err := hash.Write([]byte(user + "-" + r.Host)); err != nil {
 			fmt.Fprint(w, "failed to hash user")
 			w.WriteHeader(http.StatusInternalServerError)
 			return
