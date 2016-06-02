@@ -98,15 +98,15 @@ func Handler(next http.Handler) http.Handler {
 
 		sig, err := base64.StdEncoding.DecodeString(token)
 		if err != nil {
-			fmt.Fprint(w, "failed to decode auth token")
 			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, "failed to decode auth token")
 			return
 		}
 
 		hash := sha1.New()
 		if _, err := hash.Write([]byte(user + "-" + r.Host)); err != nil {
-			fmt.Fprint(w, "failed to hash user")
 			w.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(w, "failed to hash user")
 			return
 		}
 
@@ -114,13 +114,13 @@ func Handler(next http.Handler) http.Handler {
 		defer lk.RUnlock()
 
 		if pubKey == nil {
-			fmt.Fprint(w, "public s3o key unavailable")
 			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, "public s3o key unavailable")
 		}
 
 		if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA1, hash.Sum(nil), sig); err != nil {
-			fmt.Fprint(w, "failed to authenticate")
 			w.WriteHeader(http.StatusForbidden)
+			fmt.Fprint(w, "failed to authenticate")
 			return
 		}
 
