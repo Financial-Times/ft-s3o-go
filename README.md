@@ -1,7 +1,7 @@
 ft-s3o-go
 =========
 
-[![CircleCI](https://circleci.com/github/Financial-Times/ft-s3o-go.svg?style=svg)](https://circleci.com/github.com/Financial-Times/ft-s3o-go)
+[![CircleCI](https://circleci.com/gh/Financial-Times/ft-s3o-go.svg?style=svg)](https://circleci.com/gh/Financial-Times/ft-s3o-go)
 
 Go middleware for FT s3o staff single signon
 
