@@ -92,7 +92,7 @@ func Handler(next http.Handler) http.Handler {
 			if r.URL.RawQuery != "" {
 				query = "?" + r.URL.RawQuery
 			}
-			# not worrying about including r.URL.Fragment
+			// not worrying about including r.URL.Fragment
 			
 			requrl := fmt.Sprintf("%s://%s%s%s", proto, r.Host, r.URL.Path, query)
 
