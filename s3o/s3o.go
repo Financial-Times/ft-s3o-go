@@ -74,7 +74,6 @@ func fetchPubkey() (*rsa.PublicKey, error) {
 // Handler wraps the given handler in s3o authentication
 func Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 		if err := r.ParseForm(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -83,7 +82,9 @@ func Handler(next http.Handler) http.Handler {
 		user := r.Form.Get("username")
 		token := r.Form.Get("token")
 
+		// Send the user to s3o to authenticate
 		if user == "" || token == "" {
+			log.Printf("Starting authentication for url: %s", r.URL)
 			proto := "http"
 			if r.TLS != nil {
 				proto = "https"
@@ -93,7 +94,7 @@ func Handler(next http.Handler) http.Handler {
 				query = "?" + r.URL.RawQuery
 			}
 			// not worrying about including r.URL.Fragment
-			
+
 			requrl := fmt.Sprintf("%s://%s%s%s", proto, r.Host, r.URL.Path, query)
 
 			w.Header().Add("Cache-Control", "private, no-cache, no-store, must-revalidate")
@@ -103,35 +104,44 @@ func Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		sig, err := base64.StdEncoding.DecodeString(token)
-		if err != nil {
-			w.WriteHeader(http.StatusForbidden)
-			fmt.Fprint(w, "failed to decode auth token")
-			return
+		// These parameters come from https://s3o.ft.com. It redirects back after it does the google authentication.
+		if r.Method == "POST" && user != "" {
+			log.Printf("POST with url: %s", r.URL)
+			sig, err := base64.StdEncoding.DecodeString(token)
+			if err != nil {
+				w.WriteHeader(http.StatusForbidden)
+				fmt.Fprint(w, "failed to decode auth token")
+				return
+			}
+
+			hash := sha1.New()
+			if _, err := hash.Write([]byte(user + "-" + r.Host)); err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				fmt.Fprint(w, "failed to hash user")
+				return
+			}
+
+			lk.RLock()
+			defer lk.RUnlock()
+
+			if pubKey == nil {
+				w.WriteHeader(http.StatusForbidden)
+				fmt.Fprint(w, "public s3o key unavailable")
+				return
+			}
+
+			if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA1, hash.Sum(nil), sig); err != nil {
+				w.WriteHeader(http.StatusForbidden)
+				fmt.Fprint(w, "failed to authenticate")
+				return
+			}
+
+			// set cookies
+			http.SetCookie(w, &http.Cookie{Name: "s3o_username", Value: user, MaxAge: 900000, HttpOnly: true})
+			http.SetCookie(w, &http.Cookie{Name: "s3o_token", Value: token, MaxAge: 900000, HttpOnly: true})
+			// clean URL
+			//cleanURL = url.parse(req.originalUrl, true);
 		}
-
-		hash := sha1.New()
-		if _, err := hash.Write([]byte(user + "-" + r.Host)); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprint(w, "failed to hash user")
-			return
-		}
-
-		lk.RLock()
-		defer lk.RUnlock()
-
-		if pubKey == nil {
-			w.WriteHeader(http.StatusForbidden)
-			fmt.Fprint(w, "public s3o key unavailable")
-		}
-
-		if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA1, hash.Sum(nil), sig); err != nil {
-			w.WriteHeader(http.StatusForbidden)
-			fmt.Fprint(w, "failed to authenticate")
-			return
-		}
-
-		next.ServeHTTP(w, r)
 	})
 }
 
