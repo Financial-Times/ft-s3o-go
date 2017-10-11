@@ -14,6 +14,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -78,13 +79,38 @@ func Handler(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-
 		user := r.Form.Get("username")
 		token := r.Form.Get("token")
 
-		// Send the user to s3o to authenticate
-		if user == "" || token == "" {
-			log.Printf("Starting authentication for url: %s", r.URL)
+		// These parameters come from https://s3o.ft.com. It redirects back after it does the google authentication.
+		if r.Method == "POST" && user != "" {
+			code, err := authenticateToken(user, token, r.Host)
+			if err != nil {
+				w.WriteHeader(code)
+				fmt.Fprint(w, err.Error())
+			}
+
+			// set cookies
+			http.SetCookie(w, &http.Cookie{Name: "s3o_username", Value: user, MaxAge: 900000, HttpOnly: true})
+			http.SetCookie(w, &http.Cookie{Name: "s3o_token", Value: token, MaxAge: 900000, HttpOnly: true})
+
+			// clean URL - still not working!
+			r.URL.Query().Del("username")
+			r.Form.Del("username")
+			s := strings.Replace(r.RequestURI, "username="+user, "", 1)
+			r.RequestURI = s
+
+			next.ServeHTTP(w, r)
+		} else if hasCookies, usr, tkn := isAuthFromCookie(r); hasCookies {
+			// Check for s3o username/token cookies
+			code, err := authenticateToken(usr, tkn, r.Host)
+			if err != nil {
+				w.WriteHeader(code)
+				fmt.Fprint(w, err.Error())
+			}
+			next.ServeHTTP(w, r)
+		} else {
+			// Send the user to s3o to authenticate
 			proto := "http"
 			if r.TLS != nil {
 				proto = "https"
@@ -94,55 +120,49 @@ func Handler(next http.Handler) http.Handler {
 				query = "?" + r.URL.RawQuery
 			}
 			// not worrying about including r.URL.Fragment
-
-			requrl := fmt.Sprintf("%s://%s%s%s", proto, r.Host, r.URL.Path, query)
+			originalLocation := fmt.Sprintf("%s://%s%s%s", proto, r.Host, r.URL.Path, query)
 
 			w.Header().Add("Cache-Control", "private, no-cache, no-store, must-revalidate")
 			w.Header().Add("Pragma", "no-cache")
 			w.Header().Add("Expires", "0")
-			http.Redirect(w, r, "https://s3o.ft.com/v2/authenticate/?post=true&redirect="+url.QueryEscape(requrl)+"&host="+url.QueryEscape(r.Host), http.StatusFound)
+			http.Redirect(w, r, "https://s3o.ft.com/v2/authenticate/?post=true&redirect="+url.QueryEscape(originalLocation)+"&host="+url.QueryEscape(r.Host), http.StatusFound)
 			return
 		}
-
-		// These parameters come from https://s3o.ft.com. It redirects back after it does the google authentication.
-		if r.Method == "POST" && user != "" {
-			log.Printf("POST with url: %s", r.URL)
-			sig, err := base64.StdEncoding.DecodeString(token)
-			if err != nil {
-				w.WriteHeader(http.StatusForbidden)
-				fmt.Fprint(w, "failed to decode auth token")
-				return
-			}
-
-			hash := sha1.New()
-			if _, err := hash.Write([]byte(user + "-" + r.Host)); err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				fmt.Fprint(w, "failed to hash user")
-				return
-			}
-
-			lk.RLock()
-			defer lk.RUnlock()
-
-			if pubKey == nil {
-				w.WriteHeader(http.StatusForbidden)
-				fmt.Fprint(w, "public s3o key unavailable")
-				return
-			}
-
-			if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA1, hash.Sum(nil), sig); err != nil {
-				w.WriteHeader(http.StatusForbidden)
-				fmt.Fprint(w, "failed to authenticate")
-				return
-			}
-
-			// set cookies
-			http.SetCookie(w, &http.Cookie{Name: "s3o_username", Value: user, MaxAge: 900000, HttpOnly: true})
-			http.SetCookie(w, &http.Cookie{Name: "s3o_token", Value: token, MaxAge: 900000, HttpOnly: true})
-			// clean URL
-			//cleanURL = url.parse(req.originalUrl, true);
-		}
 	})
+}
+
+func isAuthFromCookie(r *http.Request) (bool, string, string) {
+	usr, err1 := r.Cookie("s3o_username")
+	tkn, err2 := r.Cookie("s3o_token")
+	if err1 != nil && err2 != nil {
+		return false, "", ""
+	}
+	return true, usr.Value, tkn.Value
+}
+
+func authenticateToken(username string, token string, hostname string) (int, error) {
+	sig, err := base64.StdEncoding.DecodeString(token)
+	if err != nil {
+		return http.StatusForbidden, errors.New("failed to decode auth token")
+	}
+
+	hash := sha1.New()
+	if _, err := hash.Write([]byte(username + "-" + hostname)); err != nil {
+		return http.StatusInternalServerError, errors.New("failed to hash user")
+	}
+
+	lk.RLock()
+	defer lk.RUnlock()
+
+	if pubKey == nil {
+		return http.StatusForbidden, errors.New("public s3o key unavailable")
+	}
+
+	if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA1, hash.Sum(nil), sig); err != nil {
+		return http.StatusForbidden, errors.New("failed to authenticate")
+	}
+
+	return 0, nil
 }
 
 // SetKeyFetchPeriod changes how often we fetch the s3o public key. The default is 5 minutes.
