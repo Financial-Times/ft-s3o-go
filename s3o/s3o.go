@@ -94,13 +94,12 @@ func Handler(next http.Handler) http.Handler {
 			http.SetCookie(w, &http.Cookie{Name: "s3o_username", Value: user, MaxAge: 900000, HttpOnly: true})
 			http.SetCookie(w, &http.Cookie{Name: "s3o_token", Value: token, MaxAge: 900000, HttpOnly: true})
 
-			// clean URL - still not working!
-			r.URL.Query().Del("username")
-			r.Form.Del("username")
-			s := strings.Replace(r.RequestURI, "username="+user, "", 1)
-			r.RequestURI = s
+			// s3o.ft.com redirects with ?username=<value> query param, so we're going to remove it from the URL
+			cleanURL := cleanUsernameFromURL(r, user)
 
-			next.ServeHTTP(w, r)
+			// make a copy of original request, with clean URL
+			req, _ := http.NewRequest(http.MethodGet, cleanURL, nil)
+			next.ServeHTTP(w, req)
 		} else if hasCookies, usr, tkn := isAuthFromCookie(r); hasCookies {
 			// Check for s3o username/token cookies
 			code, err := authenticateToken(usr, tkn, r.Host)
@@ -129,6 +128,29 @@ func Handler(next http.Handler) http.Handler {
 			return
 		}
 	})
+}
+
+func cleanUsernameFromURL(r *http.Request, username string) string {
+	proto := "http"
+	if r.TLS != nil {
+		proto = "https"
+	}
+	// cleaning username param
+	query := strings.Replace(r.URL.RawQuery, "username="+username, "", -1)
+	if query != "" {
+		query = "?" + query
+	}
+
+	// remains unchanged if not ending in "&"
+	query = strings.TrimSuffix(query, "&")
+
+	// path '/' keeps the query params unchanged when redirecting
+	path := r.URL.EscapedPath()
+	if path == "/" {
+		path = ""
+	}
+
+	return fmt.Sprintf("%s://%s%s%s", proto, r.Host, path, query)
 }
 
 func isAuthFromCookie(r *http.Request) (bool, string, string) {
