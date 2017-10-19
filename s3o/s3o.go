@@ -19,6 +19,11 @@ import (
 	"time"
 )
 
+const (
+	cookieUsernameKey = "s3o_username"
+	cookieTokenKey    = "s3o_token"
+)
+
 var (
 	lk     sync.RWMutex
 	pubKey *rsa.PublicKey
@@ -91,17 +96,24 @@ func Handler(next http.Handler) http.Handler {
 			}
 
 			// set cookies
-			http.SetCookie(w, &http.Cookie{Name: "s3o_username", Value: user, MaxAge: 900000, HttpOnly: true})
-			http.SetCookie(w, &http.Cookie{Name: "s3o_token", Value: token, MaxAge: 900000, HttpOnly: true})
+			http.SetCookie(w, &http.Cookie{Name: cookieUsernameKey, Value: user, MaxAge: 900000, HttpOnly: true})
+			http.SetCookie(w, &http.Cookie{Name: cookieTokenKey, Value: token, MaxAge: 900000, HttpOnly: true})
 
 			// s3o.ft.com redirects with ?username=<value> query param, so we're going to remove it from the URL
 			cleanURL := cleanUsernameFromURL(r, user)
 
+			// don't cache any redirection responses
+			w.Header().Add("Cache-Control", "private, no-cache, no-store, must-revalidate")
+			w.Header().Add("Pragma", "no-cache")
+			w.Header().Add("Expires", "0")
+
 			// make a copy of original request, with clean URL
 			req, _ := http.NewRequest(http.MethodGet, cleanURL, nil)
-			next.ServeHTTP(w, req)
+
+			// redirect to the original request
+			http.Redirect(w, req, cleanURL, http.StatusFound)
 		} else if hasCookies, usr, tkn := isAuthFromCookie(r); hasCookies {
-			// Check for s3o username/token cookies
+			// check for s3o username/token cookies
 			code, err := authenticateToken(usr, tkn, r.Host)
 			if err != nil {
 				w.WriteHeader(code)
@@ -109,7 +121,7 @@ func Handler(next http.Handler) http.Handler {
 			}
 			next.ServeHTTP(w, r)
 		} else {
-			// Send the user to s3o to authenticate
+			// send the user to s3o to authenticate
 			proto := "http"
 			if r.TLS != nil {
 				proto = "https"
@@ -125,7 +137,6 @@ func Handler(next http.Handler) http.Handler {
 			w.Header().Add("Pragma", "no-cache")
 			w.Header().Add("Expires", "0")
 			http.Redirect(w, r, "https://s3o.ft.com/v2/authenticate/?post=true&redirect="+url.QueryEscape(originalLocation)+"&host="+url.QueryEscape(r.Host), http.StatusFound)
-			return
 		}
 	})
 }
@@ -154,8 +165,8 @@ func cleanUsernameFromURL(r *http.Request, username string) string {
 }
 
 func isAuthFromCookie(r *http.Request) (bool, string, string) {
-	usr, err1 := r.Cookie("s3o_username")
-	tkn, err2 := r.Cookie("s3o_token")
+	usr, err1 := r.Cookie(cookieUsernameKey)
+	tkn, err2 := r.Cookie(cookieTokenKey)
 	if err1 != nil && err2 != nil {
 		return false, "", ""
 	}
