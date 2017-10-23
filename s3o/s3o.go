@@ -123,7 +123,7 @@ func Handler(next http.Handler) http.Handler {
 		} else {
 			// send the user to s3o to authenticate
 			proto := "http"
-			if r.TLS != nil {
+			if r.Header.Get("X-Fordwarded-Proto") == "https" {
 				proto = "https"
 			}
 			query := ""
