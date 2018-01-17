@@ -118,6 +118,7 @@ func Handler(next http.Handler) http.Handler {
 			if err != nil {
 				w.WriteHeader(code)
 				fmt.Fprint(w, err.Error())
+				return
 			}
 			next.ServeHTTP(w, r)
 		} else {
