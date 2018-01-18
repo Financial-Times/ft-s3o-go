@@ -116,6 +116,9 @@ func Handler(next http.Handler) http.Handler {
 			// check for s3o username/token cookies
 			code, err := authenticateToken(usr, tkn, r.Host)
 			if err != nil {
+				deleteCookie(w, cookieUsernameKey, r)
+				deleteCookie(w, cookieTokenKey, r)
+
 				w.WriteHeader(code)
 				fmt.Fprint(w, err.Error())
 				return
@@ -140,6 +143,17 @@ func Handler(next http.Handler) http.Handler {
 			http.Redirect(w, r, "https://s3o.ft.com/v2/authenticate/?post=true&redirect="+url.QueryEscape(originalLocation)+"&host="+url.QueryEscape(r.Host), http.StatusFound)
 		}
 	})
+}
+
+func deleteCookie(w http.ResponseWriter, cookieName string, r *http.Request) {
+	c, err := r.Cookie(cookieName)
+	if err != nil {
+		return
+	}
+
+	c.Value = ""
+	c.Expires = time.Now().Add(time.Hour * -1)
+	http.SetCookie(w, c) // attempt to set an empty value cookie with an out-of-date expiry to force the browser to delete it
 }
 
 func cleanUsernameFromURL(r *http.Request, username string) string {
@@ -168,7 +182,7 @@ func cleanUsernameFromURL(r *http.Request, username string) string {
 func isAuthFromCookie(r *http.Request) (bool, string, string) {
 	usr, err1 := r.Cookie(cookieUsernameKey)
 	tkn, err2 := r.Cookie(cookieTokenKey)
-	if err1 != nil && err2 != nil {
+	if err1 != nil || err2 != nil {
 		return false, "", ""
 	}
 	return true, usr.Value, tkn.Value

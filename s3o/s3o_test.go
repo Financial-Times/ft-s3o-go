@@ -3,6 +3,8 @@ package s3o
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,14 +61,52 @@ func TestS3oInvalidAuthDoesNotCallNextHandler(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/hello-world", nil)
 
-	r.AddCookie(&http.Cookie{Name: "s3o_username", Value: "", Expires: time.Now()})
-	r.AddCookie(&http.Cookie{Name: "s3o_token", Value: "", Expires: time.Now()})
+	r.AddCookie(&http.Cookie{Name: cookieUsernameKey, Value: "", Expires: time.Now()})
+	r.AddCookie(&http.Cookie{Name: cookieTokenKey, Value: "", Expires: time.Now()})
 
 	hw := new(helloWorld)
 	Handler(hw.handler()).ServeHTTP(w, r)
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 	assert.Equal(t, "public s3o key unavailable", w.Body.String())
+
+	setCookies := w.HeaderMap[textproto.CanonicalMIMEHeaderKey("Set-Cookie")]
+	for _, actual := range setCookies {
+		if strings.HasPrefix(actual, cookieTokenKey) {
+			assert.Contains(t, actual, cookieTokenKey+"=; Expires=")
+		} else {
+			assert.Contains(t, actual, cookieUsernameKey+"=; Expires=")
+		}
+	}
+
+	hw.AssertExpectations(t)
+}
+
+func TestCheckCookiesFailsAndAttemptsAuthIfNoToken(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/hello-world", nil)
+
+	r.AddCookie(&http.Cookie{Name: cookieUsernameKey, Value: "username", Expires: time.Now()})
+
+	hw := new(helloWorld)
+	Handler(hw.handler()).ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusFound, w.Code)
+	assert.Equal(t, "https://s3o.ft.com/v2/authenticate/?post=true&redirect=http%3A%2F%2Fexample.com%2Fhello-world&host=example.com", w.Header().Get("Location"))
+	hw.AssertExpectations(t)
+}
+
+func TestCheckCookiesFailsAndAttemptsAuthIfNoUsername(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/hello-world", nil)
+
+	r.AddCookie(&http.Cookie{Name: cookieTokenKey, Value: "", Expires: time.Now()})
+
+	hw := new(helloWorld)
+	Handler(hw.handler()).ServeHTTP(w, r)
+
+	assert.Equal(t, http.StatusFound, w.Code)
+	assert.Equal(t, "https://s3o.ft.com/v2/authenticate/?post=true&redirect=http%3A%2F%2Fexample.com%2Fhello-world&host=example.com", w.Header().Get("Location"))
 	hw.AssertExpectations(t)
 }
 
