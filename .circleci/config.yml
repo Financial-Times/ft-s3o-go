@@ -1,0 +1,31 @@
+version: 2
+jobs:
+  build:
+    working_directory: /go/src/github.com/Financial-Times/tme-reader/s3o
+    docker:
+      - image: golang:1.8.3
+        environment:
+          GOPATH: /go
+          CIRCLE_TEST_REPORTS: /tmp/test-results
+    steps:
+      - checkout
+      - run:
+          name: External Dependencies
+          command: |
+            go get -u github.com/jstemmer/go-junit-report
+      - run:
+          name: Test Results
+          command: |
+            mkdir -p ${CIRCLE_TEST_REPORTS}
+      - run:
+          name: Go get
+          command: go get -t -d -v ./...
+      - run:
+          name: Run Tests
+          command: |
+            go test -race -v ./... | /go/bin/go-junit-report > ${CIRCLE_TEST_REPORTS}/main.xml
+workflows:
+  version: 2
+  test-and-build:
+    jobs:
+      - build
